@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class OtpHistory {
+public class OtpRecord {
 
 
     @Id
@@ -28,12 +28,15 @@ public class OtpHistory {
     @Column(nullable = false, length = 4)
     private String otpCode;
 
-    @Column(nullable = false)
-    private int attempts = 0;
+
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
     @Column(nullable = false)
     private LocalDateTime expiredAt;
+
+    private int retryAttempt ;
+    private int resendAttempt ;
+    private LocalDateTime blockTime ;
 }

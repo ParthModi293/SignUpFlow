@@ -20,17 +20,22 @@ public class OTPController {
 
     @PostMapping("/generate")
     public ResponseEntity<String> generateOTP(@RequestBody OTPRequest request) {
-        String otpCode = otpService.generateOTP(request.getEmail(), request.getMobileNumber());
-        return ResponseEntity.ok("OTP generated successfully! OTP: " + otpCode);
+        String otpCode = otpService.generateOtp(request.getEmail(), request.getMobileNumber());
+        return ResponseEntity.ok(otpCode);
     }
 
     @PostMapping("/verify")
-    public ResponseEntity<String> verifyOTP(@RequestBody OTPVerifyRequest request) {
-        try {
-            boolean isValid = otpService.verifyOTP(request.getEmail(), request.getOtpCode());
-            return ResponseEntity.ok("OTP verified successfully!");
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
-        }
+    public ResponseEntity<String> varifyOTP(@RequestBody OTPVerifyRequest request) {
+        String s = otpService.verifyOtp(request.getEmail(), request.getOtpCode());
+        return ResponseEntity.ok().body(s);
     }
+
+
+    @PostMapping("/resend")
+    public ResponseEntity<String> resendOTP(@RequestBody OTPRequest request) {
+        String otpCode = otpService.resendOtp(request.getEmail(), request.getMobileNumber());
+        return ResponseEntity.ok(otpCode);
+    }
+
+
 }

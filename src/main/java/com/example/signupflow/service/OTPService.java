@@ -1,59 +1,116 @@
 package com.example.signupflow.service;
 
-import com.example.signupflow.entity.OtpHistory;
-import com.example.signupflow.repo.OTPHistoryRepository;
+import com.example.signupflow.entity.OtpRecord;
+import com.example.signupflow.repo.OtpRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.Random;
+import java.util.Optional;
 
 @Service
 public class OTPService {
 
     @Autowired
-    private OTPHistoryRepository otpHistoryRepository;
+    private OtpRepository otpRepository;
+    private static final SecureRandom random = new SecureRandom();
 
-    private static final int OTP_EXPIRY_MINUTES = 10;
+
+    private static final int OTP_EXPIRATION_MINUTES = 10;
     private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_RESEND_ATTEMPTS = 3;
+    private static final int BLOCK_TIME_MINUTES = 10;
 
-    public String generateOTP(String email, String mobileNumber) {
-        String otpCode = String.format("%04d", new Random().nextInt(10000)); // Generate 4-digit OTP
+    public String generateOtp(String email, String mobile) {
+        Optional<OtpRecord> existingRecord = otpRepository.findByEmail(email);
 
-        OtpHistory otp = otpHistoryRepository.findByEmail(email)
-                .orElse(new OtpHistory());
+        if (existingRecord.isPresent()) {
+            OtpRecord record = existingRecord.get();
+            if (record.getBlockTime() != null && record.getBlockTime().isAfter(LocalDateTime.now())) {
+                return "User is blocked. Try after " + BLOCK_TIME_MINUTES + " minutes.";
+            }
+            otpRepository.delete(record);
+        }
 
-        otp.setEmail(email);
-        otp.setMobileNumber(mobileNumber);
-        otp.setOtpCode(otpCode);
-        otp.setAttempts(0);
-        otp.setCreatedAt(LocalDateTime.now());
-        otp.setExpiredAt(LocalDateTime.now().plusMinutes(OTP_EXPIRY_MINUTES));
+        OtpRecord newRecord = new OtpRecord();
+        newRecord.setEmail(email);
+        newRecord.setMobileNumber(mobile);
+        newRecord.setOtpCode(generateOtp());
+        newRecord.setCreatedAt(LocalDateTime.now());
+        newRecord.setExpiredAt(LocalDateTime.now().plusMinutes(OTP_EXPIRATION_MINUTES));
 
-        otpHistoryRepository.save(otp);
-        return otpCode;
+        otpRepository.save(newRecord);
+        return "OTP sent successfully.";
     }
 
-    public boolean verifyOTP(String email, String otpCode) {
-        OtpHistory otp = otpHistoryRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("OTP not found!"));
+    public String verifyOtp(String email, String inputOtp) {
+        Optional<OtpRecord> existingRecord = otpRepository.findByEmail(email);
 
-        if (otp.getExpiredAt().isBefore(LocalDateTime.now())) {
-            otpHistoryRepository.delete(otp);
-            throw new RuntimeException("OTP expired!");
+        if (existingRecord.isEmpty()) {
+            return "OTP expired or not found.";
         }
 
-        if (otp.getAttempts() >= MAX_ATTEMPTS) {
-            throw new RuntimeException("Maximum attempts exceeded!");
+        OtpRecord record = existingRecord.get();
+
+        if (record.getBlockTime() != null && record.getBlockTime().isAfter(LocalDateTime.now())) {
+            return "User is blocked. Try after " + BLOCK_TIME_MINUTES + " minutes.";
         }
 
-        if (!otp.getOtpCode().equals(otpCode)) {
-            otp.setAttempts(otp.getAttempts() + 1);
-            otpHistoryRepository.save(otp);
-            throw new RuntimeException("Incorrect OTP!");
+        if (record.getExpiredAt().isBefore(LocalDateTime.now())) {
+            otpRepository.delete(record);
+            return "OTP expired.";
         }
 
-        otpHistoryRepository.delete(otp); // OTP verified, remove entry
-        return true;
+        if (record.getOtpCode().equals(inputOtp)) {
+            otpRepository.delete(record);
+            return "OTP verified successfully.";
+        } else {
+            record.setRetryAttempt(record.getRetryAttempt() + 1);
+
+            if (record.getRetryAttempt() >= MAX_ATTEMPTS) {
+                record.setBlockTime(LocalDateTime.now().plusMinutes(BLOCK_TIME_MINUTES));
+                otpRepository.save(record);
+                return "Too many failed attempts. User blocked for " + BLOCK_TIME_MINUTES + " minutes.";
+            }
+
+            otpRepository.save(record);
+            return "Invalid OTP. Attempts left: " + (MAX_ATTEMPTS - record.getRetryAttempt());
+        }
+    }
+
+    public String resendOtp(String email, String mobile) {
+        Optional<OtpRecord> existingRecord = otpRepository.findByEmail(email);
+
+        if (existingRecord.isPresent()) {
+            OtpRecord record = existingRecord.get();
+
+            if (record.getBlockTime() != null && record.getBlockTime().isAfter(LocalDateTime.now())) {
+                return "User is blocked. Try after " + BLOCK_TIME_MINUTES + " minutes.";
+            }
+
+            if (record.getResendAttempt() >= MAX_RESEND_ATTEMPTS) {
+                record.setBlockTime(LocalDateTime.now().plusMinutes(BLOCK_TIME_MINUTES));
+                otpRepository.save(record);
+                return "Maximum resend attempts reached. User blocked for " + BLOCK_TIME_MINUTES + " minutes.";
+            }
+
+            record.setOtpCode(generateOtp());
+            record.setCreatedAt(LocalDateTime.now());
+            record.setExpiredAt(LocalDateTime.now().plusMinutes(OTP_EXPIRATION_MINUTES));
+            record.setRetryAttempt(0);
+            record.setBlockTime(null);
+            record.setResendAttempt(record.getResendAttempt() + 1);
+
+            otpRepository.save(record);
+            return "OTP resent successfully.";
+        }
+
+        return generateOtp(email, mobile);
+    }
+
+    public static String generateOtp() {
+        int otp = 1000 + random.nextInt(9000); // 4-digit OTP
+        return String.valueOf(otp);
     }
 }
