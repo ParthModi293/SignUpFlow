@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -31,12 +32,12 @@ public class OtpRecord {
 
 
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(nullable = false)
-    private LocalDateTime expiredAt;
+    private Instant expiredAt;
 
     private int retryAttempt ;
     private int resendAttempt ;
-    private LocalDateTime blockTime ;
+    private Instant blockTime ;
 }
