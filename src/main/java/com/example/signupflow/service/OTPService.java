@@ -1,3 +1,4 @@
+/*
 package com.example.signupflow.service;
 
 import com.example.signupflow.entity.OtpRecord;
@@ -50,6 +51,7 @@ public class OTPService {
     }
 
     public String verifyOtp(String email, String inputOtp) {
+
         Optional<OtpRecord> existingRecord = otpRepository.findByEmail(email);
 
         if (existingRecord.isEmpty()) {
@@ -67,10 +69,9 @@ public class OTPService {
             return "OTP expired.";
         }
 
-        if (record.getOtpCode().equals(inputOtp)) {
-            otpRepository.delete(record);
-            return "OTP verified successfully.";
-        } else {
+        if (!record.getOtpCode().equals(inputOtp)) {
+
+
             record.setRetryAttempt(record.getRetryAttempt() + 1);
 
             if (record.getRetryAttempt() >= MAX_ATTEMPTS) {
@@ -83,6 +84,11 @@ public class OTPService {
             otpRepository.save(record);
             return "Invalid OTP. Attempts left: " + (MAX_ATTEMPTS - record.getRetryAttempt());
         }
+
+        otpRepository.delete(record);
+        saveUser();
+        return "OTP verified successfully.";
+
     }
 
     public String resendOtp(String email, String mobile) {
@@ -92,7 +98,7 @@ public class OTPService {
             OtpRecord record = existingRecord.get();
 
             if (record.getBlockTime() != null && record.getBlockTime().isAfter(Instant.now())) {
-                    return "User is blocked. Try after " + formatInstant(record.getBlockTime()) ;
+                return "User is blocked. Try after " + formatInstant(record.getBlockTime());
             }
 
             if (record.getCreatedAt().plus(Duration.ofMinutes(RESEND_COOLDOWN_MINUTES)).isAfter(Instant.now())) {
@@ -104,7 +110,7 @@ public class OTPService {
                 Instant blockEndTime = Instant.now().plus(Duration.ofMinutes(BLOCK_TIME_MINUTES));
                 record.setBlockTime(blockEndTime);
                 otpRepository.save(record);
-                return "Maximum resend attempts reached. User blocked until " + formatInstant(blockEndTime) ;
+                return "Maximum resend attempts reached. User blocked until " + formatInstant(blockEndTime);
             }
 
             record.setOtpCode(generateOtp());
@@ -132,3 +138,4 @@ public class OTPService {
         return formatter.format(instant);
     }
 }
+*/
