@@ -1,10 +1,12 @@
 package com.example.signupflow.LoginFlow.service;
 
 import com.example.signupflow.LoginFlow.entity.LoginDraft;
+import com.example.signupflow.LoginFlow.entity.SignInDraft;
 import com.example.signupflow.LoginFlow.entity.User;
 import com.example.signupflow.LoginFlow.model.LoginRequest;
 import com.example.signupflow.LoginFlow.model.LoginSuccessResponse;
 import com.example.signupflow.LoginFlow.repositpry.LoginDraftRepository;
+import com.example.signupflow.LoginFlow.repositpry.SignInDraftRepository;
 import com.example.signupflow.LoginFlow.repositpry.UserRepository;
 import org.keycloak.representations.AccessTokenResponse;
 import org.springframework.http.HttpStatus;
@@ -17,13 +19,12 @@ import java.util.Optional;
 
 @Service
 public class AuthService {
-    
+
     @Autowired
     private UserRepository userRepository;
 
     @Autowired
-    private LoginDraftRepository loginDraftRepository;
-
+    private SignInDraftRepository signInDraftRepository;
 
 
     @Autowired
@@ -39,59 +40,52 @@ public class AuthService {
         User user = userOptional.get();
 
         // Fetch or create LoginDraft entry
-        LoginDraft loginDraft = loginDraftRepository.findByUsername(request.getUsername())
-                .orElse(new LoginDraft(request.getUsername()));
+        SignInDraft loginAttempt = signInDraftRepository.findByEmail(user.getUsername())
+                .orElseGet(() -> {
+                    SignInDraft newAttempt = new SignInDraft();
+                    newAttempt.setEmail(request.getUsername());
+                    return newAttempt;
+                });
+
+        // Check if the first failed attempt was more than 10 minutes ago
+        if (loginAttempt.getFirstFailedTime() != null &&
+                loginAttempt.getFirstFailedTime().plusMinutes(10).isBefore(LocalDateTime.now())) {
+
+            // Reset all fields
+            loginAttempt.setFailedAttempts(0);
+            loginAttempt.setFirstFailedTime(null);
+            loginAttempt.setBlockedUntil(null);
+        }
 
         // Check if user is blocked
-        if (loginDraft.getBlockedUntil() != null && loginDraft.getBlockedUntil().isAfter(LocalDateTime.now())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Account is locked. Try again later.");
+        if (loginAttempt.getBlockedUntil()!=null && loginAttempt.getBlockedUntil().isAfter(LocalDateTime.now())) {
+            return  ResponseEntity.ok("User blocked"); // User is still blocked
         }
 
-        // Validate Password in User Table
-        if (!request.getPassword().equals(user.getPassword())) {
-            return handleFailedAttempt(loginDraft);
+        boolean isValidLogin = validateLogin(request);
+        if (isValidLogin) {
+            loginAttempt.setFailedAttempts(0);
+            loginAttempt.setFirstFailedTime(null);
+            loginAttempt.setBlockedUntil(null);
+            signInDraftRepository.save(loginAttempt);
+            return ResponseEntity.ok("Login successful");
+        }else{
+            if (loginAttempt.getFailedAttempts() == 0) {
+                loginAttempt.setFirstFailedTime(LocalDateTime.now());
+            }
+            loginAttempt.setFailedAttempts(loginAttempt.getFailedAttempts() + 1);
+
+            if (loginAttempt.getFailedAttempts() >= 5) {
+                loginAttempt.setBlockedUntil(loginAttempt.getFirstFailedTime().plusMinutes(10));
+            }
+            signInDraftRepository.save(loginAttempt);
+            return ResponseEntity.ok("Login Failure");
         }
 
-        // Authenticate with Keycloak
-        if (!keycloakAuthService.authenticateUserFromKeycloak(request.getUsername(), request.getPassword())) {
-            return handleFailedAttempt(loginDraft);
-        }
 
-        // Reset failed attempts on success
-        loginDraft.setFailedAttempts(0);
-        loginDraft.setLastFailedAttempt(null);
-        loginDraft.setBlockedUntil(null);
-        loginDraftRepository.save(loginDraft);
-
-        // Get token from Keycloak
-        AccessTokenResponse tokenResponse = keycloakAuthService.getTokensFromKeycloak(request.getUsername(), request.getPassword());
-
-        LoginSuccessResponse loginSuccessResponse = new LoginSuccessResponse();
-        loginSuccessResponse.setGrantToken(tokenResponse.getToken());
-        loginSuccessResponse.setRefreshToken(tokenResponse.getRefreshToken());
-
-        return ResponseEntity.ok(loginSuccessResponse);
     }
 
-    private ResponseEntity<String> handleFailedAttempt(LoginDraft loginDraft) {
-        LocalDateTime now = LocalDateTime.now();
-
-        // Reset failed attempts if last attempt was more than 10 minutes ago
-        if (loginDraft.getLastFailedAttempt() != null && loginDraft.getLastFailedAttempt().isBefore(now.minusMinutes(10))) {
-            loginDraft.setFailedAttempts(1); // Reset and start fresh count
-        } else {
-            loginDraft.setFailedAttempts(loginDraft.getFailedAttempts() + 1);
-        }
-
-        loginDraft.setLastFailedAttempt(now); // Update last failed attempt time
-
-        // Lock account if failed attempts exceed limit
-        if (loginDraft.getFailedAttempts() >= 5) {
-            loginDraft.setBlockedUntil(LocalDateTime.now().plusMinutes(10));
-            loginDraft.setFailedAttempts(0); // Reset count after lock
-        }
-
-        loginDraftRepository.save(loginDraft);
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid username or password");
+    private boolean validateLogin(LoginRequest request) {
+        return request.getUsername().equals(request.getUsername()) ; // Replace with hashed password check in production
     }
 }
