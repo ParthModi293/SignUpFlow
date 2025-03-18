@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.Random;
 
 @Service
 public class AuthService {
@@ -26,66 +27,78 @@ public class AuthService {
     @Autowired
     private SignInDraftRepository signInDraftRepository;
 
+    @Autowired
+    private LoginDraftRepository loginDraftRepository;
+
 
     @Autowired
     private KeycloakAuthService keycloakAuthService;
 
-    public ResponseEntity<?> login(LoginRequest request) {
-        Optional<User> userOptional = userRepository.findByUsername(request.getUsername());
+    private static final int MAX_RESEND_ATTEMPTS = 3;
+    private static final int BLOCK_TIME_MINUTES = 10;
 
-        if (userOptional.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid username or password");
+    public void sendOtp(LoginRequest request) throws Exception {
+        Optional<User> userOptional = userRepository.findByUsername(request.getEmail());
+
+        if(userOptional.isEmpty()) {
+            throw new  Exception("User not found");
         }
-
         User user = userOptional.get();
 
-        // Fetch or create LoginDraft entry
-        SignInDraft loginAttempt = signInDraftRepository.findByEmail(user.getUsername())
-                .orElseGet(() -> {
-                    SignInDraft newAttempt = new SignInDraft();
-                    newAttempt.setEmail(request.getUsername());
-                    return newAttempt;
-                });
-
-        // Check if the first failed attempt was more than 10 minutes ago
-        if (loginAttempt.getFirstFailedTime() != null &&
-                loginAttempt.getFirstFailedTime().plusMinutes(10).isBefore(LocalDateTime.now())) {
-
-            // Reset all fields
-            loginAttempt.setFailedAttempts(0);
-            loginAttempt.setFirstFailedTime(null);
-            loginAttempt.setBlockedUntil(null);
-        }
-
-        // Check if user is blocked
-        if (loginAttempt.getBlockedUntil()!=null && loginAttempt.getBlockedUntil().isAfter(LocalDateTime.now())) {
-            return  ResponseEntity.ok("User blocked"); // User is still blocked
-        }
-
-        boolean isValidLogin = validateLogin(request);
-        if (isValidLogin) {
-            loginAttempt.setFailedAttempts(0);
-            loginAttempt.setFirstFailedTime(null);
-            loginAttempt.setBlockedUntil(null);
-            signInDraftRepository.save(loginAttempt);
-            return ResponseEntity.ok("Login successful");
-        }else{
-            if (loginAttempt.getFailedAttempts() == 0) {
-                loginAttempt.setFirstFailedTime(LocalDateTime.now());
+        LoginDraft loginDraft = loginDraftRepository.findByEmail(request.getEmail()).orElse(null);
+        if (loginDraft == null) {
+            // ✅ No record found, create a new one
+            loginDraft = new LoginDraft();
+            loginDraft.setEmail(request.getEmail());
+            loginDraft.setUserId(user.getId());
+            loginDraft.setResendAttempt(1);
+            loginDraft.setOtpGeneratedAt(LocalDateTime.now());
+            loginDraft.setOtpExpiredAt(LocalDateTime.now().plusMinutes(10));
+        } else {
+            // ✅ Step 1: Check if user is blocked
+            if (loginDraft.getBlockedUntil() != null && loginDraft.getBlockedUntil().isAfter(LocalDateTime.now())) {
+                throw new Exception("Too many OTP requests. Please try again in 10 minutes.");
             }
-            loginAttempt.setFailedAttempts(loginAttempt.getFailedAttempts() + 1);
 
-            if (loginAttempt.getFailedAttempts() >= 5) {
-                loginAttempt.setBlockedUntil(loginAttempt.getFirstFailedTime().plusMinutes(10));
+            // ✅ Step 2: Check if OTP is expired
+            if (loginDraft.getOtpExpiredAt().isBefore(LocalDateTime.now())) {
+                // Reset OTP fields & attempts
+                loginDraft.setOtpGeneratedAt(LocalDateTime.now());
+                loginDraft.setOtpExpiredAt(LocalDateTime.now().plusMinutes(10)); // 🔄 Reset to 10 min
+                loginDraft.setResendAttempt(1);
+            } else {
+                // ✅ OTP is still valid, just increment resend attempt
+                loginDraft.setResendAttempt(loginDraft.getResendAttempt() + 1);
             }
-            signInDraftRepository.save(loginAttempt);
-            return ResponseEntity.ok("Login Failure");
+
+            // ✅ Step 3: Check resend limit
+            if (loginDraft.getResendAttempt() > MAX_RESEND_ATTEMPTS) {
+                loginDraft.setBlockedUntil(LocalDateTime.now().plusMinutes(BLOCK_TIME_MINUTES));
+                loginDraftRepository.save(loginDraft);
+                throw new Exception("Too many OTP requests. Please try again in 10 minutes.");
+            }
         }
+
+        // ✅ Generate & save new OTP (Clear old OTP first)
+        String otpCode = generateOtp();
+        loginDraft.setOtpCode(otpCode);
+        loginDraftRepository.save(loginDraft);
+
+        // ✅ Send OTP via email
+        sendOtpEmail(request.getEmail(), otpCode);
 
 
     }
 
-    private boolean validateLogin(LoginRequest request) {
-        return request.getUsername().equals(request.getUsername()) ; // Replace with hashed password check in production
+    private String generateOtp() {
+        // Example OTP generation logic (you should enhance it with a more secure method)
+        return String.format("%06d", new Random().nextInt(999999));
     }
+
+    private void sendOtpEmail(String email, String otpCode) {
+        // Send OTP to the user's email (integrate with your email service)
+        System.out.println("Sending OTP " + otpCode + " to email " + email);
+    }
+
+
 }

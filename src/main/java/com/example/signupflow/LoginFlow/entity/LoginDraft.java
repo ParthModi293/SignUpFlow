@@ -12,30 +12,22 @@ import java.time.LocalDateTime;
 @Table(name = "login_draft")
 @Data
 public class LoginDraft {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String username;
-    private Integer failedAttempts = 0;
-    private LocalDateTime blockedUntil;
-
+    private Long userId;
+    private String email;
     private String otpCode;
-    private Integer otpAttempts = 0;
-    private Integer resendCount = 0;
-    private LocalDateTime otpBlockedUntil;
-    private LocalDateTime otpCreatedAt;
-    private  LocalDateTime lastFailedAttempt;
-
-
-
+    private LocalDateTime otpGeneratedAt;
     private LocalDateTime otpExpiredAt;
+    private int resendAttempt;
+    private LocalDateTime blockedUntil;
 
 
     public LoginDraft() {
     }
 
-    public LoginDraft(String username) {
-        this.username = username;
-    }
+
 }

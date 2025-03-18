@@ -14,7 +14,8 @@ public class AuthController {
     private AuthService authService;
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
-        return authService.login(request);
+    public ResponseEntity<?> login(@RequestBody LoginRequest request) throws Exception {
+         authService.sendOtp(request);
+         return ResponseEntity.ok().build();
     }
 }
